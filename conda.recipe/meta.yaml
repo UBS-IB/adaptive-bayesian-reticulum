@@ -1,0 +1,36 @@
+{% set data = load_setup_py_data() %}
+
+package:
+  name: adaptive-bayesian-reticulum
+  version: {{ data.get('version') }}
+
+source:
+  path: ..
+
+build:
+  script: python setup.py install --single-version-externally-managed --record=record.txt
+  noarch: python
+
+requirements:
+  build:
+    - python
+    - setuptools
+
+  run:
+    - python
+    # dependencies are defined in setup.py
+    {% for dep in data['install_requires'] %}
+    - {{ dep.lower() }}
+    {% endfor %}
+    # raw is for ignoring templating with cookiecutter, leaving it for use with conda-build #
+
+test:
+  source_files:
+    - tests
+  requires:
+    - pytest
+    - pytest-flake8
+
+about:
+  home: https://github.com/UBS-IB/adaptive-bayesian-reticulum
+  license_file: LICENSE
