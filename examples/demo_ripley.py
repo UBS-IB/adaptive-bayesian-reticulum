@@ -10,6 +10,7 @@ import datetime as dt
 import os
 
 from sklearn.metrics import accuracy_score
+from sklearn.metrics import log_loss
 
 from examples.util import load_ripley, plot_2d_hyperplane
 from reticulum import AdaptiveBayesianReticulum
@@ -47,12 +48,12 @@ print(model)
 print(f'Training took {t1-t0}')
 
 # evaluate performance
-y_pred_train = model.predict(X_train)
-y_pred_test = model.predict(X_test)
-accuracy_train = accuracy_score(y_train, y_pred_train)
-accuracy_test = accuracy_score(y_test, y_pred_test)
-info_train = f'Train accuracy: {100*accuracy_train:.4f} %'
-info_test = f'Test accuracy:  {100*accuracy_test:.4f} %'
+log_loss_train = log_loss(y_train, model.predict_proba(X_train))
+log_loss_test = log_loss(y_test, model.predict_proba(X_test))
+accuracy_train = accuracy_score(y_train, model.predict(X_train))
+accuracy_test = accuracy_score(y_test, model.predict(X_test))
+info_train = f'Train: Log-loss = {log_loss_train}, accuracy = {100*accuracy_train:.4f} %'
+info_test = f'Test: Log-loss = {log_loss_test}, accuracy = {100*accuracy_test:.4f} %'
 print(f'Depth:  {model.get_depth()}')
 print(f'Leaves: {model.get_n_leaves()}')
 print(info_train)

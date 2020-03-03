@@ -164,9 +164,11 @@ def plot_2d_hyperplane(
         X_test: np.ndarray,
         y_test: np.ndarray,
         info_test: str) -> None:
-    plt.figure(figsize=[10, 16], dpi=75)
+    n_classes = int(np.max(y_train)) + 1
+    if n_classes != 2:
+        print('Warning: Cannot plot more than 2 classes')
+        return
 
-    n_classes = int(y_train.max()) + 1
     cmap = plt.get_cmap('coolwarm')
 
     x_min = min(X_train[:, 0].min(), X_test[:, 0].min())
@@ -180,12 +182,13 @@ def plot_2d_hyperplane(
     def plot(X: np.ndarray, y: np.ndarray, info: str, cmap: Colormap) -> None:
         for i in range(n_classes):
             class_i = y == i
-            plt.plot(X[np.where(class_i)[0], 0],
-                     X[np.where(class_i)[0], 1],
-                     'o',
-                     ms=4,
-                     c=cmap(i/(n_classes-1)),
-                     label=f'Class {i}')
+            plt.plot(
+                X[np.where(class_i)[0], 0],
+                X[np.where(class_i)[0], 1],
+                'o',
+                ms=4,
+                c=cmap(i/(n_classes-1)),
+                label=f'Class {i}')
 
         draw_node_2d_hyperplane(model, x_lim, y_lim, cmap)
 
@@ -193,6 +196,8 @@ def plot_2d_hyperplane(
         plt.xlabel('x0')
         plt.ylabel('x1')
         plt.legend()
+
+    plt.figure(figsize=[10, 16], dpi=75)
 
     plt.subplot(211)
     plot(X_train, y_train, info_train, cmap)

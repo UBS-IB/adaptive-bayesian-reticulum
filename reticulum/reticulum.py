@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Union, List, Dict, Tuple
+from typing import Union, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -19,14 +19,20 @@ TARGET = Union[np.ndarray, List[float]]
 
 class AdaptiveBayesianReticulum(BaseEstimator, ClassifierMixin):
     """
-    The Adaptive Bayesian Reticulum binary classification model.
+    The Adaptive Bayesian Reticulum classification model for binary and
+    multiclass classification.
 
     Parameters
     ----------
 
-    prior : tuple, shape = [n_dim], optional, default=(10.0, 10.0)
-        The beta distribution parameters of the prior distribution, i.e, alpha
-        and beta see [1].
+    prior : tuple, shape = [n_classes], optional, default=(number of instances of each class divided by 20)
+        The hyperparameters (alpha_0, alpha_1, ..., alpha_[N-1]) of the Dirichlet
+        conjugate prior, see [1] and [2]. All alpha_i must be positive, where
+        alpha_i represents the number of prior pseudo-observations of class i.
+        Defaults to 1/20 times the number of observations in each class, i.e.,
+        5 % prior strength. If the problem is binary classification then the
+        theDirichlet distribution collapses to a Beta distribution with an
+        (alpha, beta) prior.
 
     pruning_factor : float, optional, default=1.05
         The factor by which the log likelihood of a split has to be larger than
@@ -69,14 +75,14 @@ class AdaptiveBayesianReticulum(BaseEstimator, ClassifierMixin):
     References
     ----------
 
-    .. [1] https://en.wikipedia.org/wiki/Beta_distribution
-    .. [2] https://en.wikipedia.org/wiki/N-sphere#Volume_and_surface_area
+    .. [1] https://en.wikipedia.org/wiki/Dirichlet_distribution#Conjugate_to_categorical/multinomial
+    .. [2] https://en.wikipedia.org/wiki/Conjugate_prior#Discrete_distributions
     .. [3] https://arxiv.org/abs/1412.6980
     .. [4] https://ruder.io/optimizing-gradient-descent/
     """
     def __init__(
             self,
-            prior: Tuple[float, float]=(10.0, 10.0),
+            prior: Optional[Tuple[float, ...]]=None,
             pruning_factor: float=1.05,
             n_iter: int=50,
             learning_rate_init: float=1e-4,
@@ -113,6 +119,9 @@ class AdaptiveBayesianReticulum(BaseEstimator, ClassifierMixin):
 
         # validation and input transformation
         X, y = check_X_y(X, y)
+        if type_of_target(y) not in ('binary', 'multiclass'):
+            raise ValueError(f'Unknown label type: {type_of_target(y)}')
+
         y_universe, y_encoded = np.unique(y, return_inverse=True)
         if not np.all(y == y_encoded):
             y = y_encoded
@@ -120,14 +129,17 @@ class AdaptiveBayesianReticulum(BaseEstimator, ClassifierMixin):
         else:
             self.classes_ = None
 
-        if type_of_target(y) != 'binary':
-            raise ValueError(f'Unknown label type: {type_of_target(y)}')
-
         y = self._ensure_float64(y)
 
-        prior = np.asarray(self.prior)
-        n_classes = len(prior)
         unique = np.unique(y)
+
+        prior = self.prior
+        if prior is None:
+            prior = [len(np.where(y == yi)[0])/20 for yi in unique]
+
+        prior = np.asarray(prior)
+
+        n_classes = len(prior)
         if len(unique) == 1:
             raise ValueError('Classifier can\'t train when only one class is present.')
 
@@ -178,7 +190,7 @@ class AdaptiveBayesianReticulum(BaseEstimator, ClassifierMixin):
             initial_relative_stiffness=self.initial_relative_stiffness)
 
         # grow tree
-        overall_proba = None
+        overall_proba = None  # type: Optional[np.ndarray]
         for k in range(self.n_iter):
             # determine terminal nodes
             terminal_nodes_left_ = root.collect_terminal_nodes(is_left=True)
@@ -313,10 +325,11 @@ class AdaptiveBayesianReticulum(BaseEstimator, ClassifierMixin):
             if predict_class:
                 return np.argmax(self.overall_proba_) * np.ones(n_data)
             else:
-                return self.overall_proba_ * np.ones((n_data, 2))
+                return self.overall_proba_ * np.ones((n_data, len(self.overall_proba_)))
 
         self.root_.update_s_hat(Xa)
-        p = np.zeros((n_data, 2))
+        n_classes = len(self.root_.posterior_left_)
+        p = np.zeros((n_data, n_classes))
         self.root_.update_probability(Xa, p)
 
         assert np.all((p >= 0) & (p <= 1))
@@ -355,7 +368,14 @@ class AdaptiveBayesianReticulum(BaseEstimator, ClassifierMixin):
         return self.root_.update_n_leaves(0)
 
     def feature_importance(self) -> np.ndarray:
-        """Computes and returns the relative importance of each features."""
+        """Computes and returns the relative importance of the feature dimensions.
+
+        Returns
+        -------
+        feature_importance : array, shape = [number of features/dimensions]
+            The relative importance of each feature dimension.
+        """
+
         self._ensure_is_fitted_and_valid()
 
         feature_importance = np.zeros(self.n_dim_)
@@ -413,11 +433,6 @@ class AdaptiveBayesianReticulum(BaseEstimator, ClassifierMixin):
             raise ValueError('Cannot convert data matrix to np.float64 without loss of precision. Please check your data.')
 
         return data_float64
-
-    def _get_tags(self) -> Dict[str, bool]:
-        # tell scikit-learn that this is a binary classifier only, see
-        # https://scikit-learn.org/stable/developers/develop.html#estimator-tags
-        return dict(binary_only=True)
 
     def __repr__(self, N_CHAR_MAX=700) -> str:
         return str(self)

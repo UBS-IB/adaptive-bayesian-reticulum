@@ -3,7 +3,7 @@ Adaptive Bayesian Reticulum
 Overview
 --------
 This is an implementation of the paper [Adaptive Bayesian Reticulum](https://arxiv.org/abs/1912.05901)
-by Nuti et al. The model is a binary classification tree with soft margins and a novel
+by Nuti et al. The model is a binary and multiclass classification tree with soft margins and a novel
 tree construction method.
 
 

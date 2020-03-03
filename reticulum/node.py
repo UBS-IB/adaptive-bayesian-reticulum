@@ -296,13 +296,12 @@ class Node:
         self.update_s_hat(Xa, s_hat_parent)
 
         # recursive backward pass
-        idx_0 = (y == 0)
-        idx_1 = (y == 1)
-        d_k_d_s_hat = np.vstack([1*idx_0, 1*idx_1])
+        class_idx = [y == i for i in range(len(np.unique(y)))]
+        d_k_d_s_hat = np.vstack([1*ci for ci in class_idx])
 
         d_err_d_weights_list = []
         self._compute_d_err_d_s_hat_and_collect_d_err_d_weights(
-            Xa, prior, s_hat_parent, idx_0, idx_1, d_k_d_s_hat, d_err_d_weights_list)
+            Xa, prior, s_hat_parent, class_idx, d_k_d_s_hat, d_err_d_weights_list)
 
         return np.vstack(d_err_d_weights_list).T
 
@@ -311,17 +310,14 @@ class Node:
             Xa: np.ndarray,
             prior: np.ndarray,
             s_hat_parent: np.ndarray,
-            idx_0: np.ndarray,
-            idx_1: np.ndarray,
+            class_idx: List[np.ndarray],
             d_k_d_s_hat: np.ndarray,
             d_err_d_weights_list: List[np.ndarray]) -> np.ndarray:
         # see node iteration order note at the top of this file
 
         if self.left__child is None:
             # leaf on the left
-            k_left__0 = self.s_hat_left_[idx_0].sum()
-            k_left__1 = self.s_hat_left_[idx_1].sum()
-            k_left_ = np.array([k_left__0, k_left__1])
+            k_left_ = np.array([self.s_hat_left_[ci].sum() for ci in class_idx])
             posterior_left_ = prior + k_left_
             d_err_d_k_left_ = -d_log_multivariate_beta_d_alphas(posterior_left_)
             d_err_d_s_hat_left_ = d_err_d_k_left_ @ d_k_d_s_hat
@@ -331,16 +327,13 @@ class Node:
                 Xa=Xa,
                 prior=prior,
                 s_hat_parent=self.s_hat_left_,
-                idx_0=idx_0,
-                idx_1=idx_1,
+                class_idx=class_idx,
                 d_k_d_s_hat=d_k_d_s_hat,
                 d_err_d_weights_list=d_err_d_weights_list)
 
         if self.right_child is None:
             # leaf on the left
-            k_right_0 = self.s_hat_right[idx_0].sum()
-            k_right_1 = self.s_hat_right[idx_1].sum()
-            k_right = np.array([k_right_0, k_right_1])
+            k_right = np.array([self.s_hat_right[ci].sum() for ci in class_idx])
             posterior_right = prior + k_right
             d_err_d_k_right = -d_log_multivariate_beta_d_alphas(posterior_right)
             d_err_d_s_hat_right = d_err_d_k_right @ d_k_d_s_hat
@@ -350,8 +343,7 @@ class Node:
                 Xa=Xa,
                 prior=prior,
                 s_hat_parent=self.s_hat_right,
-                idx_0=idx_0,
-                idx_1=idx_1,
+                class_idx=class_idx,
                 d_k_d_s_hat=d_k_d_s_hat,
                 d_err_d_weights_list=d_err_d_weights_list)
 
@@ -375,16 +367,15 @@ class Node:
         assert Xa.shape[0] == len(y)
         assert s_hat_parent.ndim == 1
 
-        idx_0 = y == 0
-        idx_1 = y == 1
+        class_idx = [y == i for i in range(len(np.unique(y)))]
 
         self.s = sigmoid(Xa @ self.weights)
 
         self.s_hat_left_ = s_hat_parent * self.s
         self.s_hat_right = s_hat_parent * (1 - self.s)
 
-        self.k_left_ = Node._compute_k(self.s_hat_left_, idx_0, idx_1).T
-        self.k_right = Node._compute_k(self.s_hat_right, idx_0, idx_1).T
+        self.k_left_ = Node._compute_k(self.s_hat_left_, class_idx).T
+        self.k_right = Node._compute_k(self.s_hat_right, class_idx).T
 
         betaln_prior = multivariate_betaln(prior)
         self.log_p_data_left_ = compute_log_p_data(prior, self.k_left_, betaln_prior)
@@ -402,21 +393,14 @@ class Node:
             y: np.ndarray,
             s_hat_parent: np.ndarray,
             prior: np.ndarray) -> np.ndarray:
-        idx_0 = y == 0
-        idx_1 = y == 1
-
-        k = Node._compute_k(s_hat_parent, idx_0, idx_1).T
-
+        class_idx = [y == i for i in range(len(np.unique(y)))]
+        k = Node._compute_k(s_hat_parent, class_idx).T
         betaln_prior = multivariate_betaln(prior)
-
         return compute_log_p_data(prior, k, betaln_prior)
 
     @staticmethod
-    def _compute_k(s_hat: np.ndarray, idx_0: np.array, idx_1: np.array) -> np.ndarray:
-        k0 = s_hat[idx_0].sum(axis=0)
-        k1 = s_hat[idx_1].sum(axis=0)
-
-        return np.array([k0, k1])
+    def _compute_k(s_hat: np.ndarray, class_idx: List[np.array]) -> np.ndarray:
+        return np.array([s_hat[ci].sum(axis=0) for ci in class_idx])
 
     def _collect_weight_matrix(self, weights_list: List[np.ndarray]=None) -> Optional[np.ndarray]:
         # see node iteration order note at the top of this file
@@ -484,11 +468,11 @@ class Node:
         return n_leaves
 
     def update_feature_importance(self, feature_importance: np.ndarray) -> None:
+        # the more the normal vector is oriented along a given dimension's axis the
+        # more important that dimension is, so weight the gain in log-likelihood by
+        # the absolute value of the unit hyperplane normal
         log_p_gain = self.log_p_data_split - self.log_p_data_no_split
-        hyperplane_normal = self.weights[1:]
-
-        # the more the normal vector is oriented along a given dimension's axis the more
-        # important that dimension is, so weight log_p_gain with abs(hyperplane_normal)
+        hyperplane_normal = self.weights[1:] / np.linalg.norm(self.weights[1:])
         feature_importance += log_p_gain * np.abs(hyperplane_normal)
 
         if self.left__child is not None:
@@ -501,13 +485,13 @@ class Node:
         if self.posterior_left_ is None:
             return np.nan
 
-        return self.posterior_left_ / (self.posterior_left_[0] + self.posterior_left_[1])
+        return self.posterior_left_ / self.posterior_left_.sum()
 
     def predict_proba_leaf_right(self) -> np.ndarray:
         if self.posterior_right is None:
             return np.nan
 
-        return self.posterior_right / (self.posterior_right[0] + self.posterior_right[1])
+        return self.posterior_right / self.posterior_right.sum()
 
     def get_n_data(self) -> float:
         return self.k_left_.sum() + self.k_right.sum()
